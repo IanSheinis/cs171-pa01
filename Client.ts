@@ -29,21 +29,27 @@ for (let i = 0; i < args.length; i += 2) {
   }
 }
 
+/**
+ * Send request to time_server
+ * @returns servertime and round trip time 
+ */
 async function sendRequest(): Promise<{ serverTime: number, rtt: number }> {
   return new Promise((resolve, reject) => {
     const T0 = utcTimeFnNumber();  // Send time
     const client = new net.Socket();
     
+    // Send to nwServer arbitrary msg
     client.connect({ port: nw_port, host: "localhost" }, () => {
       const message = JSON.stringify({ type: "time_req" });
       client.write(message);
     });
     
+    // Parse nw server msg, returning servertime and round trip time
     client.on("data", (data) => {
-      const T1 = utcTimeFnNumber();  // Receive time
+      const T1 = utcTimeFnNumber();  
       const response = JSON.parse(data.toString("utf-8"));
       const serverTime = parseFloat(response.time_server);
-      const rtt = T1 - T0;  // Round-trip time
+      const rtt = T1 - T0;  
       
       client.destroy();
       resolve({ serverTime, rtt });
@@ -58,29 +64,37 @@ function writeRow(actualTime: string, localTime: string) {
 }
 
 async function main(){
-    epsilon_max /= 2; // So local time never goes above epsilon
-    const localTimer = new Clock(rho)
+    const localTimer = new Clock(rho) // Wrapper for local clock functionality
     const start_time = utcTimeFnNumber();
     const end_time = start_time + d;
     let lastPrintTime = Math.floor(start_time);  
 
-    fs.writeFileSync('output.csv', 'actual_time,local_time\n'); // Create csv
+    const syncInterval = epsilon_max / (2 * rho); // Eq from lecture
+    let lastSyncTime = start_time;
+
+    fs.writeFileSync('output.csv', 'actual_time,local_time\n');
+
+    // Initial synchronization
+    const { serverTime: initialTime, rtt: initialRtt } = await sendRequest();
+    localTimer.setTime(initialTime + initialRtt / 2);
 
     while (utcTimeFnNumber() <= end_time){
-        const { serverTime, rtt} = await sendRequest(); 
-        const estimatedServerTime = serverTime + rtt / 2;
-        const delta = localTimer.getTime() - serverTime;
-        if (delta >= epsilon_max) {
-            localTimer.setTime(estimatedServerTime)
-        }
-
-
-
         const currentTime = utcTimeFnNumber();
-        if (Math.floor(currentTime) > lastPrintTime) {
-            writeRow(utcTimeFn(), localTimer.getTime().toFixed(3)); // Write to csv
-            lastPrintTime = Math.floor(currentTime);  // Update to current second
+        
+        // Check if it's time to synchronize
+        if (currentTime - lastSyncTime >= syncInterval) {
+            const { serverTime, rtt } = await sendRequest();
+            const estimatedServerTime = serverTime + rtt / 2;
+            localTimer.setTime(estimatedServerTime);
+            lastSyncTime = currentTime;
         }
+
+        // Write to CSV once per second
+        if (Math.floor(currentTime) > lastPrintTime) {
+            writeRow(utcTimeFn(), localTimer.getTime().toFixed(3));
+            lastPrintTime = Math.floor(currentTime);
+        }
+        
     }
 }
 

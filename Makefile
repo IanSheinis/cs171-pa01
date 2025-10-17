@@ -1,12 +1,18 @@
 # Makefile
-
 # Default values
 d ?= 10
 epsilon_max ?= 0.1
 rho ?= 1e-6
 
+.PHONY: run_project clean
+
 run_project:
-	ts-node Time_Server.ts & ts-node NW.ts & sleep 2 && ts-node Client.ts --d $(d) --epsilon_max $(epsilon_max) --rho $(rho)
+	ts-node Time_Server.ts & 
+	ts-node NW.ts & 
+	sleep 2
+	ts-node Client.ts --d $(d) --epsilon_max $(epsilon_max) --rho $(rho)
+	@make clean
 
 clean:
-	rm -f output.csv
+	@pkill -f "ts-node Time_Server.ts" || true
+	@pkill -f "ts-node NW.ts" || true
